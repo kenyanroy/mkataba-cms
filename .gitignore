@@ -1,0 +1,39 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# build outputs
+.next/
+out/
+dist/
+
+# env files — NEVER commit
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Prisma
+prisma/*.db
+prisma/*.db-journal
+
+# uploads (runtime)
+uploads/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# logs
+*.log
+npm-debug.log*
+
+# testing
+coverage/

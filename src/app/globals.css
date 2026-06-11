@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 231 64% 14%;       /* #1a1a2e */
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 231 64% 14%;
+    --radius: 0.5rem;
+    --sidebar-width: 260px;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; }
+}
+
+/* Mobile-first responsive utilities */
+@layer utilities {
+  .sidebar-transition {
+    transition: transform 0.3s ease, width 0.3s ease;
+  }
+
+  .card-swipe {
+    touch-action: pan-y;
+    user-select: none;
+  }
+
+  /* Status badge colors */
+  .status-draft        { @apply bg-slate-100 text-slate-700 border-slate-200; }
+  .status-under-review { @apply bg-blue-50 text-blue-700 border-blue-200; }
+  .status-pending-approval { @apply bg-amber-50 text-amber-700 border-amber-200; }
+  .status-approved     { @apply bg-green-50 text-green-700 border-green-200; }
+  .status-pending-sig  { @apply bg-purple-50 text-purple-700 border-purple-200; }
+  .status-executed     { @apply bg-emerald-50 text-emerald-700 border-emerald-200; }
+  .status-archived     { @apply bg-gray-50 text-gray-600 border-gray-200; }
+  .status-rejected     { @apply bg-red-50 text-red-700 border-red-200; }
+  .status-void         { @apply bg-zinc-50 text-zinc-500 border-zinc-200; }
+}

@@ -1,0 +1,227 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mkataba — Production Docker Compose
+# All services communicate on the isolated "mkataba_internal" bridge network.
+# Only mkataba-app exposes a port to the host.
+# ─────────────────────────────────────────────────────────────────────────────
+
+networks:
+  mkataba_internal:
+    driver: bridge
+    internal: false      # Set to true in production if behind a reverse proxy host network
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+volumes:
+  mkataba_db_data:
+    driver: local
+  docuseal_data:
+    driver: local
+  paperless_data:
+    driver: local
+  paperless_consume:
+    driver: local
+  paperless_export:
+    driver: local
+  paperless_db_data:
+    driver: local
+  mkataba_uploads:
+    driver: local
+
+services:
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 1. Mkataba Next.js Application
+  # ───────────────────────────────────────────────────────────────────────────
+  mkataba-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    container_name: mkataba-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+
+      # Database
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@mkataba-db:5432/${POSTGRES_DB}?schema=public
+
+      # Auth.js
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+
+      # DocuSeal (internal Docker DNS)
+      DOCUSEAL_API_URL: http://docuseal:3000
+      DOCUSEAL_API_TOKEN: ${DOCUSEAL_API_TOKEN}
+      DOCUSEAL_WEBHOOK_SECRET: ${DOCUSEAL_WEBHOOK_SECRET}
+
+      # Paperless-ngx (internal Docker DNS)
+      PAPERLESS_API_URL: http://paperless-ngx:8000
+      PAPERLESS_API_TOKEN: ${PAPERLESS_API_TOKEN}
+
+      # Email (SMTP)
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM: ${SMTP_FROM:-"Mkataba <noreply@mkataba.app>"}
+
+      # Security
+      APPROVAL_TOKEN_SECRET: ${APPROVAL_TOKEN_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+
+      # App
+      NEXT_PUBLIC_APP_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+
+    volumes:
+      - mkataba_uploads:/app/uploads
+    depends_on:
+      mkataba-db:
+        condition: service_healthy
+    networks:
+      - mkataba_internal
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 2. Mkataba PostgreSQL Database
+  # ───────────────────────────────────────────────────────────────────────────
+  mkataba-db:
+    image: postgres:16-alpine
+    container_name: mkataba-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mkataba}
+      POSTGRES_USER: ${POSTGRES_USER:-mkataba}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - mkataba_db_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - mkataba_internal
+    # No ports exposed to host — internal only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mkataba} -d ${POSTGRES_DB:-mkataba}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 3. DocuSeal — Self-Hosted E-Signature
+  # ───────────────────────────────────────────────────────────────────────────
+  docuseal:
+    image: docuseal/docuseal:latest
+    container_name: docuseal
+    restart: unless-stopped
+    # Internal only — accessed by mkataba-app via http://docuseal:3000
+    # Uncomment below ONLY for initial admin setup, then re-comment
+    # ports:
+    #   - "3001:3000"
+    environment:
+      SECRET_KEY_BASE: ${DOCUSEAL_SECRET_KEY_BASE}
+      DATABASE_URL: sqlite3:////data/docuseal.sqlite3
+      RAILS_SERVE_STATIC_FILES: "true"
+      # Webhook will call mkataba-app from within the Docker network
+      HOST: ${NEXTAUTH_URL:-http://localhost:3000}
+    volumes:
+      - docuseal_data:/data
+    networks:
+      - mkataba_internal
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 4. Paperless-ngx — Document Archival & OCR
+  # ───────────────────────────────────────────────────────────────────────────
+  paperless-ngx:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    container_name: paperless-ngx
+    restart: unless-stopped
+    # Internal only — accessed by mkataba-app via http://paperless-ngx:8000
+    # Uncomment below ONLY for initial admin setup
+    # ports:
+    #   - "8000:8000"
+    environment:
+      PAPERLESS_REDIS: redis://paperless-redis:6379
+      PAPERLESS_DBENGINE: postgresql_psycopg2
+      PAPERLESS_DBHOST: paperless-db
+      PAPERLESS_DBPORT: 5432
+      PAPERLESS_DBNAME: ${PAPERLESS_DB_NAME:-paperless}
+      PAPERLESS_DBUSER: ${PAPERLESS_DB_USER:-paperless}
+      PAPERLESS_DBPASS: ${PAPERLESS_DB_PASSWORD}
+      PAPERLESS_SECRET_KEY: ${PAPERLESS_SECRET_KEY}
+      PAPERLESS_URL: ${PAPERLESS_PUBLIC_URL:-http://localhost:8000}
+      PAPERLESS_ADMIN_USER: ${PAPERLESS_ADMIN_USER:-admin}
+      PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD}
+      PAPERLESS_ADMIN_MAIL: ${PAPERLESS_ADMIN_EMAIL:-admin@mkataba.app}
+      PAPERLESS_TIME_ZONE: ${TZ:-Africa/Nairobi}
+      PAPERLESS_OCR_LANGUAGE: eng
+      PAPERLESS_OCR_LANGUAGES: eng
+      # Enable REST API token auth
+      PAPERLESS_AUTO_LOGIN_USERNAME: ""
+    volumes:
+      - paperless_data:/usr/src/paperless/media
+      - paperless_consume:/usr/src/paperless/consume
+      - paperless_export:/usr/src/paperless/export
+    depends_on:
+      paperless-db:
+        condition: service_healthy
+      paperless-redis:
+        condition: service_healthy
+    networks:
+      - mkataba_internal
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "-S", "--max-time", "2", "http://localhost:8000"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 5. Paperless Redis
+  # ───────────────────────────────────────────────────────────────────────────
+  paperless-redis:
+    image: redis:7-alpine
+    container_name: paperless-redis
+    restart: unless-stopped
+    networks:
+      - mkataba_internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 6. Paperless PostgreSQL Database
+  # ───────────────────────────────────────────────────────────────────────────
+  paperless-db:
+    image: postgres:16-alpine
+    container_name: paperless-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PAPERLESS_DB_NAME:-paperless}
+      POSTGRES_USER: ${PAPERLESS_DB_USER:-paperless}
+      POSTGRES_PASSWORD: ${PAPERLESS_DB_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - paperless_db_data:/var/lib/postgresql/data
+    networks:
+      - mkataba_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PAPERLESS_DB_USER:-paperless} -d ${PAPERLESS_DB_NAME:-paperless}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
